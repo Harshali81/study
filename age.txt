@@ -1,0 +1,120 @@
+import os
+import tensorflow as tf
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import Dense, Flatten, Conv2D, MaxPooling2D, Dropout
+from tensorflow.keras.preprocessing.image import ImageDataGenerator
+import pandas as pd
+import numpy as np
+import cv2
+import kagglehub
+
+# Step 1: Download the dataset
+dataset_path = kagglehub.dataset_download("jessicali9530/celeba-dataset")
+print("Path to dataset files:", dataset_path)
+
+# Define paths
+img_dir = os.path.join(dataset_path, "img_align_celeba", "img_align_celeba")
+
+# Verify the number of image files
+import os
+print("Number of image files:", len(os.listdir(img_dir)))
+
+csv_path = os.path.join(dataset_path, "list_attr_celeba.csv")
+
+# Step 2: Load and preprocess metadata
+df = pd.read_csv(csv_path)
+
+# Select a target column for classification (e.g., "Smiling")
+target_column = "Smiling"
+df[target_column] = df[target_column].apply(lambda x: 1 if x == 1 else 0)  # Convert -1 to 0
+
+# Shuffle and split data into training, validation, and test sets
+df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+train_ratio = 0.8
+val_ratio = 0.1
+df_train = df[:int(len(df) * train_ratio)]
+df_val = df[int(len(df) * train_ratio):int(len(df) * (train_ratio + val_ratio))]
+df_test = df[int(len(df) * (train_ratio + val_ratio)):]
+
+# Step 3: Data generators for loading and augmenting images
+img_height, img_width = 128, 128
+batch_size = 32
+
+train_datagen = ImageDataGenerator(
+    rescale=1.0 / 255,
+    horizontal_flip=True  # Data augmentation
+)
+val_datagen = ImageDataGenerator(rescale=1.0 / 255)
+test_datagen = ImageDataGenerator(rescale=1.0 / 255)
+
+
+# Convert the target column to strings
+df_train.loc[:, "Smiling"] = df_train["Smiling"].astype(str)
+df_val.loc[:, "Smiling"] = df_val["Smiling"].astype(str)
+df_test.loc[:, "Smiling"] = df_test["Smiling"].astype(str)
+
+
+# Define the data generators again
+train_generator = train_datagen.flow_from_dataframe(
+    dataframe=df_train,
+    directory=img_dir,
+    x_col="image_id",
+    y_col="Smiling",
+    target_size=(img_height, img_width),
+    batch_size=batch_size,
+    class_mode="binary"  # Binary classification
+)
+
+val_generator = val_datagen.flow_from_dataframe(
+    dataframe=df_val,
+    directory=img_dir,
+    x_col="image_id",
+    y_col="Smiling",
+    target_size=(img_height, img_width),
+    batch_size=batch_size,
+    class_mode="binary"
+)
+
+test_generator = test_datagen.flow_from_dataframe(
+    dataframe=df_test,
+    directory=img_dir,
+    x_col="image_id",
+    y_col="Smiling",
+    target_size=(img_height, img_width),
+    batch_size=batch_size,
+    class_mode="binary"
+)
+
+
+# Step 4: Define the CNN model
+model = Sequential([
+    Conv2D(32, (3, 3), activation="relu", input_shape=(img_height, img_width, 3)),
+    MaxPooling2D((2, 2)),
+    Conv2D(64, (3, 3), activation="relu"),
+    MaxPooling2D((2, 2)),
+    Conv2D(128, (3, 3), activation="relu"),
+    MaxPooling2D((2, 2)),
+    Flatten(),
+    Dropout(0.5),
+    Dense(512, activation="relu"),
+    Dense(1, activation="sigmoid")  # Binary output
+])
+
+
+# Step 5: Compile the model
+model.compile(optimizer="adam", loss="binary_crossentropy", metrics=["accuracy"])
+
+
+# Step 6: Train the model
+history = model.fit(
+    train_generator,
+    epochs=10,
+    validation_data=val_generator
+)
+
+# Step 7: Evaluate the model
+loss, accuracy = model.evaluate(test_generator)
+print("Test accuracy:", accuracy)
+
+# Save the entire model
+model.save('my_model.keras')

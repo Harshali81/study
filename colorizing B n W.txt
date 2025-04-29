@@ -1,0 +1,81 @@
+!rm -rf colorization
+!pip install --upgrade torch torchvision scikit-image opencv-python matplotlib
+
+!git clone --depth 1 https://github.com/richzhang/colorization.git
+%cd colorization
+
+!mkdir -p models
+!wget https://colorizers.s3.us-east-2.amazonaws.com/colorization_release_v2-9b330a0b.pth -O models/colorization_release_v2.pth
+!wget https://colorizers.s3.us-east-2.amazonaws.com/colorization_release_v1-6d696e8a.pth -O models/colorization_release_v1.pth
+
+print("✅ Setup complete!")
+
+# Upload B&W Image
+from google.colab import files
+import os
+
+uploaded = files.upload()
+baw = next(iter(uploaded))
+os.rename(baw, f"imgs/{baw}")
+print(f"✅ Uploaded: {baw}")
+
+# Show original image
+from PIL import Image
+import matplotlib.pyplot as plt
+
+img = Image.open(f"imgs/{baw}")
+plt.imshow(img)
+plt.title('Original B&W Image')
+plt.axis('off')
+plt.show()
+
+# Colorize Image
+import sys
+sys.path.append('.')
+from colorizers import *
+import torch
+
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+
+
+try:
+    colorizer_eccv16 = eccv16(pretrained=True).to(device).eval()
+    colorizer_siggraph17 = siggraph17(pretrained=True).to(device).eval()
+    print("✅ Models loaded successfully!")
+except Exception as e:
+    print(f"❌ Error loading models: {e}")
+    raise
+
+# Process image
+def process_image(img_path):
+    img = load_img(img_path)
+    (tens_l_orig, tens_l_rs) = preprocess_img(img, HW=(256,256))
+    tens_l_rs = tens_l_rs.to(device)
+
+
+    with torch.no_grad():
+        out_img_eccv16 = postprocess_tens(tens_l_orig,
+                                        colorizer_eccv16(tens_l_rs).cpu())
+        out_img_siggraph17 = postprocess_tens(tens_l_orig,
+                                           colorizer_siggraph17(tens_l_rs).cpu())
+    return out_img_eccv16, out_img_siggraph17
+
+# Run colorization
+eccv16_result, siggraph17_result = process_image(f"imgs/{baw}")
+
+# Display results
+plt.figure(figsize=(20,10))
+plt.subplot(1,3,1)
+plt.imshow(img)
+plt.title('Original')
+plt.axis('off')
+
+plt.subplot(1,3,2)
+plt.imshow(eccv16_result)
+plt.title('ECCV16')
+plt.axis('off')
+
+
+
+plt.show()
